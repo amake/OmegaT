@@ -86,4 +86,8 @@ public interface ISpellChecker {
      */
     boolean isLearnedWord(String word);
 
+    void reserve();
+
+    void release();
+
 }

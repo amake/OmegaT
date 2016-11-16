@@ -41,6 +41,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -295,8 +296,23 @@ public class SpellChecker implements ISpellChecker {
      */
     public void destroy() {
         saveWordLists();
-        checker.destroy();
-        checker = null;
+        try {
+            while (true) {
+                if (reservations.get() == 0) {
+                    System.out.println("Destroying!");
+                    checker.destroy();
+                    checker = null;
+                    break;
+                } else {
+                    System.out.println("Waiting to destroy!");
+                    synchronized (SpellChecker.this) {
+                        wait();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.log(e);
+        }
     }
 
     protected void resetCache() {
@@ -426,5 +442,22 @@ public class SpellChecker implements ISpellChecker {
     public List<Token> getMisspelledTokens(String text) {
         return Stream.of(Core.getProject().getTargetTokenizer().tokenizeWords(text, StemmingMode.NONE))
                 .filter(tok -> !isCorrect(tok.getTextFromString(text))).collect(Collectors.toList());
+    }
+
+    private AtomicInteger reservations = new AtomicInteger();
+
+    @Override
+    public void reserve() {
+        System.out.println("Reserved!");
+        reservations.incrementAndGet();
+    }
+
+    @Override
+    public void release() {
+        System.out.println("Released!");
+        reservations.decrementAndGet();
+        synchronized (this) {
+            notifyAll();
+        }
     }
 }

@@ -85,6 +85,7 @@ import org.apache.commons.io.FilenameUtils;
 import org.omegat.core.Core;
 import org.omegat.core.CoreEvents;
 import org.omegat.core.data.DataUtils;
+import org.omegat.core.data.IProject;
 import org.omegat.core.data.SourceTextEntry;
 import org.omegat.core.data.TMXEntry;
 import org.omegat.util.Log;
@@ -324,7 +325,14 @@ public class IssuesPanelController implements IIssues {
                 break;
             case MODIFIED:
                 if (frame.isVisible()) {
-                    SwingUtilities.invokeLater(() -> refreshData(selectedEntry, selectedType));
+                    SwingUtilities.invokeLater(() -> {
+                        // MODIFIED can happen right before CLOSE so we should
+                        // check to make sure we're actually still visible at
+                        // this point.
+                        if (frame.isVisible()) {
+                            refreshData(selectedEntry, selectedType);
+                        }
+                    });
                 }
                 break;
             default:
@@ -464,6 +472,7 @@ public class IssuesPanelController implements IIssues {
         this.filePattern = filePattern;
         this.instructions = instructions;
         init();
+        new Exception().printStackTrace();
         SwingUtilities.invokeLater(() -> refreshData(jumpToEntry, null));
     }
 
@@ -488,40 +497,33 @@ public class IssuesPanelController implements IIssues {
         if (!frame.isVisible()) {
             // Don't call setVisible if already visible, because the window will
             // steal focus
+            System.out.println("Setting visible!");
+            new Exception().printStackTrace();
             frame.setVisible(true);
+        }
+        IProject project = Core.getProject();
+        if (!project.isProjectLoaded()) {
+            return;
         }
         frame.setState(JFrame.NORMAL);
         panel.progressBar.setValue(0);
-        panel.progressBar.setMaximum(Core.getProject().getAllEntries().size());
+        panel.progressBar.setMaximum(project.getAllEntries().size());
         panel.progressBar.setVisible(true);
         panel.progressBar.setEnabled(true);
-        loader = new IssueLoader(jumpToEntry, jumpToType);
+        loader = new IssueLoader(project, jumpToEntry, jumpToType);
         loader.execute();
-    }
-
-    Map.Entry<SourceTextEntry, TMXEntry> makeEntryPair(SourceTextEntry ste) {
-        TMXEntry tmxEntry = Core.getProject().getTranslationInfo(ste);
-        if (tmxEntry == null) {
-            // Project was closed
-            return null;
-        }
-        if (!tmxEntry.isTranslated()) {
-            return null;
-        }
-        if (isShowingAllFiles() && DataUtils.isDuplicate(ste, tmxEntry)) {
-            return null;
-        }
-        return new AbstractMap.SimpleImmutableEntry<SourceTextEntry, TMXEntry>(ste, tmxEntry);
     }
 
     class IssueLoader extends SwingWorker<List<IIssue>, Integer> {
 
+        private final IProject project;
         private final int jumpToEntry;
         private final String jumpToType;
 
         private int progress = 0;
 
-        public IssueLoader(int jumpToEntry, String jumpToType) {
+        public IssueLoader(IProject project, int jumpToEntry, String jumpToType) {
+            this.project = project;
             this.jumpToEntry = jumpToEntry;
             this.jumpToType = jumpToType;
         }
@@ -532,19 +534,36 @@ public class IssuesPanelController implements IIssues {
             Stream<IIssue> tagErrors = Core.getTagValidation().listInvalidTags(filePattern).stream()
                     .map(TagIssue::new);
             List<IIssueProvider> providers = IssueProviders.getEnabledProviders();
-            Stream<IIssue> providerIssues = Core.getProject().getAllEntries().parallelStream()
-                    .filter(StreamUtil.patternFilter(filePattern, ste -> ste.getKey().file))
-                    .filter(this::progressFilter).map(IssuesPanelController.this::makeEntryPair)
-                    .filter(Objects::nonNull).flatMap(e -> providers.stream()
-                            .flatMap(provider -> provider.getIssues(e.getKey(), e.getValue()).stream()));
-            List<IIssue> result = Stream.concat(tagErrors, providerIssues).collect(Collectors.toList());
-            Logger.getLogger(IssuesPanelController.class.getName()).log(Level.FINEST,
-                    () -> String.format("Issue detection took %.3f s", (System.currentTimeMillis() - start) / 1000f));
+            providers.forEach(IIssueProvider::onBatchStart);
+            List<IIssue> result = null;
+            try {
+                Stream<IIssue> providerIssues = project.getAllEntries().parallelStream()
+                        .filter(StreamUtil.patternFilter(filePattern, ste -> ste.getKey().file))
+                        .filter(this::progressFilter).map(this::makeEntryPair).filter(Objects::nonNull)
+                        .flatMap(e -> providers.stream()
+                                .flatMap(provider -> provider.getIssues(e.getKey(), e.getValue()).stream()));
+                result = Stream.concat(tagErrors, providerIssues).collect(Collectors.toList());
+                Logger.getLogger(IssuesPanelController.class.getName()).log(Level.FINEST, () -> String
+                        .format("Issue detection took %.3f s", (System.currentTimeMillis() - start) / 1000f));
+            } finally {
+                providers.forEach(IIssueProvider::onBatchEnd);
+            }
             return result;
         }
 
+        Map.Entry<SourceTextEntry, TMXEntry> makeEntryPair(SourceTextEntry ste) {
+            TMXEntry tmxEntry = project.getTranslationInfo(ste);
+            if (!tmxEntry.isTranslated()) {
+                return null;
+            }
+            if (isShowingAllFiles() && DataUtils.isDuplicate(ste, tmxEntry)) {
+                return null;
+            }
+            return new AbstractMap.SimpleImmutableEntry<SourceTextEntry, TMXEntry>(ste, tmxEntry);
+        }
+
         boolean progressFilter(SourceTextEntry ste) {
-            boolean continu = !isCancelled();
+            boolean continu = !isCancelled() && Core.getProject() == project;
             if (continu) {
                 publish(ste.entryNum());
             }
@@ -560,6 +579,9 @@ public class IssuesPanelController implements IIssues {
 
         @Override
         protected void done() {
+            if (isCancelled()) {
+                return;
+            }
             List<IIssue> allIssues = Collections.emptyList();
             try {
                 allIssues = get();

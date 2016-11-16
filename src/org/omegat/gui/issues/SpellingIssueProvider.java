@@ -74,6 +74,16 @@ class SpellingIssueProvider implements IIssueProvider {
                 : Arrays.asList(new SpellingIssue(sourceEntry, tmxEntry, misspelled));
     }
 
+    @Override
+    public void onBatchStart() {
+        Core.getSpellChecker().reserve();
+    }
+
+    @Override
+    public void onBatchEnd() {
+        Core.getSpellChecker().release();
+    }
+
     /**
      * A class representing misspellings in a translation. One instance holds
      * all misspelled tokens for the given source/target text pair.

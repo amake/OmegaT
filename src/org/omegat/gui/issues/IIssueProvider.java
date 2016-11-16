@@ -44,4 +44,16 @@ public interface IIssueProvider {
     String getId();
 
     String getName();
+
+    /**
+     * Called at the beginning of a potentially long-running batch check.
+     */
+    default void onBatchStart() {
+    }
+
+    /**
+     * Called after a potentially long-running batch check has ended.
+     */
+    default void onBatchEnd() {
+    }
 }
