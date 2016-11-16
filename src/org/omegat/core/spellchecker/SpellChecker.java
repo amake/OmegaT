@@ -299,12 +299,10 @@ public class SpellChecker implements ISpellChecker {
         try {
             while (true) {
                 if (reservations.get() == 0) {
-                    System.out.println("Destroying!");
                     checker.destroy();
                     checker = null;
                     break;
                 } else {
-                    System.out.println("Waiting to destroy!");
                     synchronized (SpellChecker.this) {
                         wait();
                     }
@@ -448,13 +446,11 @@ public class SpellChecker implements ISpellChecker {
 
     @Override
     public void reserve() {
-        System.out.println("Reserved!");
         reservations.incrementAndGet();
     }
 
     @Override
     public void release() {
-        System.out.println("Released!");
         reservations.decrementAndGet();
         synchronized (this) {
             notifyAll();

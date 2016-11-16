@@ -472,7 +472,6 @@ public class IssuesPanelController implements IIssues {
         this.filePattern = filePattern;
         this.instructions = instructions;
         init();
-        new Exception().printStackTrace();
         SwingUtilities.invokeLater(() -> refreshData(jumpToEntry, null));
     }
 
@@ -497,8 +496,6 @@ public class IssuesPanelController implements IIssues {
         if (!frame.isVisible()) {
             // Don't call setVisible if already visible, because the window will
             // steal focus
-            System.out.println("Setting visible!");
-            new Exception().printStackTrace();
             frame.setVisible(true);
         }
         IProject project = Core.getProject();
